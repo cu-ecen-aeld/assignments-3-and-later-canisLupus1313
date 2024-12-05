@@ -10,6 +10,6 @@ if [ ! -d $1 ]; then
 	exit 1
 fi
 
-X=`grep -rl $2 $1 | wc -l`
+X=`find $1 -type f | wc -l`
 Y=`grep -r $2 $1 | wc -l`
 echo "The number of files are $X and the number of matching lines are $Y"
