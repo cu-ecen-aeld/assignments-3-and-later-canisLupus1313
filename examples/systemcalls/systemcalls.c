@@ -1,4 +1,10 @@
 #include "systemcalls.h"
+#include <fcntl.h>
+#include <stdlib.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 /**
  * @param cmd the command to execute with system()
@@ -7,17 +13,19 @@
  *   either in invocation of the system() call, or if a non-zero return
  *   value was returned by the command issued in @param cmd.
 */
-bool do_system(const char *cmd)
-{
-
-/*
- * TODO  add your code here
- *  Call the system() function with the command set in the cmd
- *   and return a boolean true if the system() call completed with success
- *   or false() if it returned a failure
-*/
-
+bool do_system(const char *cmd) {
+  /*
+   * TODO  add your code here
+   *  Call the system() function with the command set in the cmd
+   *   and return a boolean true if the system() call completed with success
+   *   or false() if it returned a failure
+   */
+  int status = system(cmd);
+  if (0 == status) {
     return true;
+  }
+
+  return false;
 }
 
 /**
@@ -58,10 +66,28 @@ bool do_exec(int count, ...)
  *   as second argument to the execv() command.
  *
 */
+    int status = 0;
+    bool error = true;
+    pid_t ret = fork();
+    // pid_t pid;
+    if (ret == 0) {
+        /* child */
+        execv(command[0], command);
+        exit(-1);
+    } else if (ret > 0) {
+        /* parent */
+        waitpid(ret, &status, 0);
+        if (WEXITSTATUS(status) != 0) {
+          error = false;
+        }
+    } else {
+        /* error */
+        error = false;
+    }
 
     va_end(args);
 
-    return true;
+    return error;
 }
 
 /**
@@ -92,8 +118,37 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
  *   The rest of the behaviour is same as do_exec()
  *
 */
+    int kidpid;
+    bool error = true;
+    int status;
+    int fd = open(outputfile, O_WRONLY | O_TRUNC | O_CREAT, 0644);
+    if (fd < 0) {
+        perror("open");
+        abort();
+    }
+    switch (kidpid = fork()) {
+    case -1:
+        perror("fork");
+        error = false;
+    case 0:
+        if (dup2(fd, 1) < 0) {
+          perror("dup2");
+          abort();
+        }
+        close(fd);
+        execv(command[0], command);
+        perror("execvp");
+        abort();
+    default:
+        close(fd);
+        waitpid(kidpid, &status, 0);
+        if (WEXITSTATUS(status) != 0) {
+          error = false;
+        }
+        /* do whatever the parent wants to do. */
+    }
 
     va_end(args);
 
-    return true;
+    return error;
 }
