@@ -94,7 +94,7 @@ void *periodic_function(void *arg)
 	while (!terminate) {
 		size_t size = strftime(buf, sizeof(buf), "timestamp:%Y:%m:%d:%H:%M:%S\n", tmp);
 		insert_file(buf, size);
-		printf("Function called! Time: %s\n", buf);
+		syslog(LOG_DEBUG, "Function called! Time: %s\n", buf);
 		sleep(10);
 	}
 	return NULL;
@@ -120,7 +120,7 @@ int create_server_socket()
 
 	if (server_fd == -1) {
 		syslog(LOG_ERR, "socket not created.");
-		printf("socket not created.");
+		syslog(LOG_DEBUG, "socket not created.");
 		error = -1;
 		goto exit;
 	}
@@ -136,7 +136,7 @@ int create_server_socket()
 
 	if ((bind(server_fd, (struct sockaddr *)&servaddr, sizeof(servaddr))) != 0) {
 		syslog(LOG_ERR, "Socket bind failed.");
-		printf("Socket bind failed.");
+		syslog(LOG_DEBUG, "Socket bind failed.");
 		error = -1;
 		goto close_soc;
 	}
@@ -215,12 +215,12 @@ void *handle_client(void *args)
 
 	bzero(buf, sizeof(buf));
 
-	printf("Client FD: %d \n", *fd);
+	syslog(LOG_DEBUG, "Client FD: %d \n", *fd);
 
 	while (!terminate) {
 		int bytes_read = recv(*fd, buf, sizeof(buf) - pos, 0);
 		if (bytes_read > 0) {
-			printf("Received %s\n", buf);
+			syslog(LOG_DEBUG, "Received %s\n", buf);
 
 			pos += bytes_read;
 			if (buf[pos - 1] == '\n') {
@@ -230,7 +230,7 @@ void *handle_client(void *args)
 				pos = 0;
 			}
 		} else {
-			printf("client disconnected\n");
+			syslog(LOG_DEBUG, "client disconnected\n");
 			break;
 		}
 	}
@@ -254,6 +254,7 @@ int main(int argc, char **argv)
 
 	openlog(NULL, LOG_NDELAY, LOG_USER | LOG_CONS);
 
+	syslog(LOG_DEBUG, "starting daemon aesdsocket");
 	config_signals();
 
 	pthread_mutex_init(&mutex, NULL);
@@ -270,24 +271,24 @@ int main(int argc, char **argv)
 		client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_len);
 		if (client_fd < 0) {
 			// syslog(LOG_ERR, "Accept failed");
-			// printf("Accept failed");
+			// syslog(LOG_DEBUG,"Accept failed");
 			continue;
 		}
 		int *fd = malloc(sizeof(client_fd));
 		*fd = client_fd;
-		printf("New connection from %s:%d\n", inet_ntoa(client_addr.sin_addr),
+		syslog(LOG_DEBUG, "New connection from %s:%d\n", inet_ntoa(client_addr.sin_addr),
 		       ntohs(client_addr.sin_port));
 
 		syslog(LOG_DEBUG, "Accepted connection from  %s:%d",
 		       inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
 
-		printf("Spawning thread");
+		syslog(LOG_DEBUG, "Spawning thread");
 		SuccessOrExit(error = pthread_create(&thread_id[maxclient], NULL, handle_client,
 						     (void *)fd));
 		maxclient++;
 	}
 
-	printf("Program terminated normally.\n");
+	syslog(LOG_DEBUG, "Program terminated normally.\n");
 
 	for (size_t i = 0; i < maxclient; i++) {
 		SuccessOrExit(error = pthread_cancel(thread_id[i]));
