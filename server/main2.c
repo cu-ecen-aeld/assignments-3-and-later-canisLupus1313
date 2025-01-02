@@ -16,6 +16,16 @@
 #include <unistd.h>
 #include <sys/queue.h>
 
+#ifndef USE_AESD_CHAR
+#define USE_AESD_CHAR 1
+#endif
+
+#if USE_AESD_CHAR
+const char filename[] = "/dev/aesdchar";
+#else
+const char filename[] = "/var/tmp/aesdsocketdata";
+#endif
+
 #define SuccessOrExit(param)                                                                       \
 	do {                                                                                       \
 		if ((param) != 0) {                                                                \
@@ -32,14 +42,7 @@
 
 void insert_file(char *buf, size_t size);
 
-struct file_emulator {
-	char *data;
-	LIST_ENTRY(file_emulator) entries;
-};
-
-LIST_HEAD(listhead, file_emulator);
-
-struct listhead file_head;
+FILE *file;
 
 int terminate = 0;
 
@@ -162,34 +165,22 @@ exit:
 
 void insert_file(char *buf, size_t size)
 {
-	struct file_emulator *elem = malloc(sizeof(struct file_emulator));
-	elem->data = malloc(size + 1);
-
-	memcpy(elem->data, buf, size);
-	elem->data[size] = 0;
-
 	pthread_mutex_lock(&mutex);
-	if (LIST_EMPTY(&file_head)) {
-		LIST_INSERT_HEAD(&file_head, elem, entries);
-	} else {
-		struct file_emulator *last = LIST_FIRST(&file_head);
-		while (LIST_NEXT(last, entries) != NULL) {
-			last = LIST_NEXT(last, entries);
-		}
-		// Insert after the last element
-		LIST_INSERT_AFTER(last, elem, entries);
-	}
+	// fprintf(file, "%s", buf);
+	fseek(file, 0, SEEK_END);
+	fwrite(buf, sizeof(buf[0]), size, file);
 	pthread_mutex_unlock(&mutex);
 }
 
 int send_all(int fd)
 {
-	struct file_emulator *iter;
+	char buf[512];
+	size_t read = 0;
 
 	pthread_mutex_lock(&mutex);
-	LIST_FOREACH(iter, &file_head, entries)
-	{
-		if (send(fd, iter->data, strlen(iter->data), 0) < 0) {
+	fseek(file, 0, SEEK_SET);
+	while ((read = fread(buf, sizeof(buf[0]), sizeof(buf), file)) > 0) {
+		if (send(fd, buf, read, 0) < 0) {
 			return -1;
 		}
 	}
@@ -198,12 +189,8 @@ int send_all(int fd)
 
 void free_file()
 {
-	struct file_emulator *iter;
-	while (!LIST_EMPTY(&file_head)) {
-		iter = LIST_FIRST(&file_head);
-		free(iter->data);
-		LIST_REMOVE(iter, entries);
-		free(iter);
+	if (file != NULL) {
+		fclose(file);
 	}
 }
 
@@ -262,10 +249,15 @@ int main(int argc, char **argv)
 
 	SuccessOrExit(error = handle_options(argc, argv));
 
+#if USE_AESD_CHAR == 0
 	SuccessOrExit(error = pthread_create(thread_id, NULL, periodic_function, NULL));
 	maxclient++;
-
-	LIST_INIT(&file_head);
+#endif
+	file = fopen(filename, "w+");
+	if (file == NULL) {
+		syslog(LOG_ERR, "File not opened");
+		goto exit;
+	}
 
 	while (!terminate) {
 		client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_len);
@@ -294,6 +286,8 @@ int main(int argc, char **argv)
 		SuccessOrExit(error = pthread_cancel(thread_id[i]));
 		SuccessOrExit(error = pthread_join(thread_id[i], NULL));
 	}
+	syslog(LOG_DEBUG, "Program threads terminated.\n");
+
 	pthread_mutex_destroy(&mutex);
 exit:
 	if (server_fd >= 0) {
