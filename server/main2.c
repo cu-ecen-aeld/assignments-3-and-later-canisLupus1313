@@ -42,7 +42,7 @@ const char filename[] = "/var/tmp/aesdsocketdata";
 
 void insert_file(char *buf, size_t size);
 
-FILE *file;
+// FILE *file;
 
 int terminate = 0;
 
@@ -165,33 +165,43 @@ exit:
 
 void insert_file(char *buf, size_t size)
 {
-	pthread_mutex_lock(&mutex);
-	// fprintf(file, "%s", buf);
-	fseek(file, 0, SEEK_END);
+	FILE *file = fopen(filename, "a");
+	if (file == NULL) {
+		syslog(LOG_ERR, "File not opened");
+		return;
+	}
+	// pthread_mutex_lock(&mutex);
+	//  fprintf(file, "%s", buf);
 	fwrite(buf, sizeof(buf[0]), size, file);
-	pthread_mutex_unlock(&mutex);
+	// pthread_mutex_unlock(&mutex);
+	fclose(file);
 }
 
 int send_all(int fd)
 {
+	FILE *file = fopen(filename, "r");
+	if (file == NULL) {
+		syslog(LOG_ERR, "File not opened");
+		return -1;
+	}
 	char buf[512];
 	size_t read = 0;
 
-	pthread_mutex_lock(&mutex);
-	fseek(file, 0, SEEK_SET);
+	// pthread_mutex_lock(&mutex);
 	while ((read = fread(buf, sizeof(buf[0]), sizeof(buf), file)) > 0) {
 		if (send(fd, buf, read, 0) < 0) {
 			return -1;
 		}
 	}
-	pthread_mutex_unlock(&mutex);
+	// pthread_mutex_unlock(&mutex);
+	fclose(file);
 }
 
 void free_file()
 {
-	if (file != NULL) {
+	/*if (file != NULL) {
 		fclose(file);
-	}
+	}*/
 }
 
 void *handle_client(void *args)
@@ -253,11 +263,6 @@ int main(int argc, char **argv)
 	SuccessOrExit(error = pthread_create(thread_id, NULL, periodic_function, NULL));
 	maxclient++;
 #endif
-	file = fopen(filename, "w+");
-	if (file == NULL) {
-		syslog(LOG_ERR, "File not opened");
-		goto exit;
-	}
 
 	while (!terminate) {
 		client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_len);
