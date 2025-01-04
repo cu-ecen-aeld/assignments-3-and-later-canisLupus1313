@@ -118,3 +118,14 @@ struct aesd_buffer_entry *aesd_circular_buffer_remove_oldest(struct aesd_circula
 
     return res;
 }
+
+size_t aesd_circular_buffer_get_size(struct aesd_circular_buffer *buffer)
+{
+	size_t res = 0;
+
+	for (size_t i = 0; i < AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; i++) {
+		res += buffer->entry[i].size;
+	}
+
+	return res;
+}
