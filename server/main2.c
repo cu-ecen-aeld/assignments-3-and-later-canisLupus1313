@@ -15,6 +15,7 @@
 #include <syslog.h>
 #include <unistd.h>
 #include <sys/queue.h>
+#include "../aesd-char-driver/aesd_ioctl.h"
 
 #ifndef USE_AESD_CHAR
 #define USE_AESD_CHAR 1
@@ -25,6 +26,8 @@ const char filename[] = "/dev/aesdchar";
 #else
 const char filename[] = "/var/tmp/aesdsocketdata";
 #endif
+
+const char special_command[] = "AESDCHAR_IOCSEEKTO:";
 
 #define SuccessOrExit(param)                                                                       \
 	do {                                                                                       \
@@ -177,7 +180,7 @@ void insert_file(char *buf, size_t size)
 	fclose(file);
 }
 
-int send_all(int fd)
+int send_all(int fd, struct aesd_seekto seek)
 {
 	FILE *file = fopen(filename, "r");
 	if (file == NULL) {
@@ -188,6 +191,9 @@ int send_all(int fd)
 	size_t read = 0;
 
 	// pthread_mutex_lock(&mutex);
+	if (seek.write_cmd != 0 || seek.write_cmd_offset != 0) {
+		ioctl(fileno(file), AESDCHAR_IOCSEEKTO, &seek);
+	}
 	while ((read = fread(buf, sizeof(buf[0]), sizeof(buf), file)) > 0) {
 		if (send(fd, buf, read, 0) < 0) {
 			return -1;
@@ -209,6 +215,7 @@ void *handle_client(void *args)
 	int *fd = (int *)args;
 	char buf[3000000];
 	size_t pos = 0;
+	struct aesd_seekto seek = {0};
 
 	bzero(buf, sizeof(buf));
 
@@ -221,8 +228,15 @@ void *handle_client(void *args)
 
 			pos += bytes_read;
 			if (buf[pos - 1] == '\n') {
-				insert_file(buf, pos);
-				send_all(*fd);
+				if (strstr(buf, special_command) != NULL) {
+					sscanf(buf, "AESDCHAR_IOCSEEKTO:%u,%u\n", &seek.write_cmd,
+					       &seek.write_cmd_offset);
+				} else {
+					insert_file(buf, pos);
+					seek.write_cmd = 0;
+					seek.write_cmd_offset = 0;
+				}
+				send_all(*fd, seek);
 				bzero(buf, sizeof(buf));
 				pos = 0;
 			}
